@@ -1,3 +1,6 @@
+requests
+kaggle
+sqlalchemy
 fastapi
 uvicorn
 torch
