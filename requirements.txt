@@ -12,3 +12,8 @@ pandas
 scikit-learn
 python-multipart
 Pillow
+
+rasterio
+matplotlib
+jinja2
+exifread

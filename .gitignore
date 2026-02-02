@@ -27,6 +27,7 @@ Thumbs.db
 
 # Datasets
 datasets/
+/data_layer/processed/*
 *.zip
 
 # YOLO Training Outputs
