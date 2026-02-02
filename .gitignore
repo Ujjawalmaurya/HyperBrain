@@ -24,3 +24,29 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Datasets
+datasets/
+*.zip
+
+# YOLO Training Outputs
+runs/
+hyperbrain_run/
+
+# Cache files
+*.cache
+
+# Custom Model Directories
+yolov8_classification_best_accuracy/
+
+# Temporary Scripts & Artifacts
+inspect_image.py
+inspect_model.py
+model_classes.txt
+dummy_multispectral.tif
+test_image.jpg
+
+# Image Data
+*.tif
+*.tiff
+ms-images/*
