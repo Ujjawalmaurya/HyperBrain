@@ -11,9 +11,27 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from ultralytics import YOLO
 import torch
+import cv2
+import numpy as np
+from typing import List
 import ms_pipeline
 
 app = FastAPI()
+
+def calculate_ndvi(image):
+    # Heuristic: Assume BGRN if 4 channels, else standard BGR
+    if len(image.shape) == 3 and image.shape[2] >= 4:
+        # B, G, R, NIR
+        red = image[:, :, 2].astype(float)
+        nir = image[:, :, 3].astype(float)
+    else:
+        # Fallback for RGB: use Blue as NIR simulator (not accurate but keeps it running)
+        red = image[:, :, 2].astype(float)
+        nir = image[:, :, 0].astype(float) 
+        
+    numerator = (nir - red)
+    denominator = (nir + red + 1e-6)
+    return numerator / denominator
 
 # Mount processed data as static files to serve images/reports
 app.mount("/data", StaticFiles(directory="data_layer/processed"), name="data")
@@ -26,7 +44,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = YOLO('yolov8_classification_best_accuracy/weights/best.pt') 
+model = YOLO('yolov8x-cls.pt') 
+pest_detector = YOLO('weights/pest.pt')
+weed_detector = YOLO('weights/weed.pt')
 
 # Simple in-memory job store (use Redis/Db for production)
 JOB_STORE = {}
@@ -149,6 +169,28 @@ async def analyze_image(file: UploadFile = File(...)):
     device = '0' if torch.cuda.is_available() else 'cpu'
     results = model(image, device=device)
     
+    # Run Detection Models
+    pest_results = pest_detector(image, device=device)
+    weed_results = weed_detector(image, device=device)
+    
+    detected_pests = []
+    for r in pest_results:
+        for box in r.boxes:
+            detected_pests.append({
+                "label": pest_detector.names[int(box.cls)],
+                "confidence": float(box.conf),
+                "box": box.xyxy[0].tolist()
+            })
+
+    detected_weeds = []
+    for r in weed_results:
+        for box in r.boxes:
+            detected_weeds.append({
+                "label": weed_detector.names[int(box.cls)],
+                "confidence": float(box.conf),
+                "box": box.xyxy[0].tolist()
+            })
+    
     # Classification Logic
     top5_probs = []
     disease_detected = False
@@ -179,6 +221,8 @@ async def analyze_image(file: UploadFile = File(...)):
         "ndvi": float(avg_ndvi),
         "disease_detected": disease_detected,
         "predictions": top5_probs,
+        "pest_detections": detected_pests,
+        "weed_detections": detected_weeds,
         "yield_prediction": yield_est,
         "processing_time": 1.2, # Placeholder, could measure actual time
         "metadata": {
@@ -187,6 +231,72 @@ async def analyze_image(file: UploadFile = File(...)):
             "app_mode": "Classification",
             "model": "YOLOv8-Best-Accuracy"
         },
+        "status": "Success"
+    }
+
+@app.post("/analyze-batch")
+async def analyze_batch(files: List[UploadFile] = File(...)):
+    job_id = str(uuid.uuid4())
+    results = []
+    
+    # Paths
+    base_output = Path("data_layer/processed/batch") / job_id
+    base_output.mkdir(parents=True, exist_ok=True)
+    
+    device = '0' if torch.cuda.is_available() else 'cpu'
+    
+    for file in files:
+        contents = await file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            continue
+            
+        # Run Detection Models
+        pest_res = pest_detector(image, device=device)
+        weed_res = weed_detector(image, device=device)
+        
+        img_detections = {"filename": file.filename, "pests": [], "weeds": []}
+        
+        # Draw and Collate
+        annotated = image.copy()
+        
+        for r in pest_res:
+            for box in r.boxes:
+                label = pest_detector.names[int(box.cls)]
+                conf = float(box.conf)
+                coords = box.xyxy[0].tolist()
+                img_detections["pests"].append({"label": label, "confidence": conf, "box": coords})
+                
+                x1, y1, x2, y2 = map(int, coords)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                cv2.putText(annotated, f"Pest: {label}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+        for r in weed_res:
+            for box in r.boxes:
+                label = weed_detector.names[int(box.cls)]
+                conf = float(box.conf)
+                coords = box.xyxy[0].tolist()
+                img_detections["weeds"].append({"label": label, "confidence": conf, "box": coords})
+                
+                x1, y1, x2, y2 = map(int, coords)
+                cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(annotated, f"Weed: {label}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        # Save annotated image
+        output_filename = f"annotated_{file.filename}"
+        output_path = base_output / output_filename
+        cv2.imwrite(str(output_path), annotated)
+        
+        img_detections["result_url"] = f"/data/batch/{job_id}/{output_filename}"
+        results.append(img_detections)
+
+    return {
+        "job_id": job_id,
+        "total_images": len(files),
+        "processed_count": len(results),
+        "results": results,
         "status": "Success"
     }
 

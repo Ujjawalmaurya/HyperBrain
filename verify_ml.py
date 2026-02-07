@@ -14,13 +14,18 @@ except ImportError as e:
 
 def test_ml_service():
     print("1. Testing Model Loading...")
-    model_path = 'yolov8_classification_best_accuracy/weights/best.pt'
-    try:
-        model = YOLO(model_path)
-        print(f"Success: Model loaded from {model_path}")
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        return
+    models = {
+        "classification": 'yolov8_classification_best_accuracy/weights/best.pt',
+        "pest": 'weights/pest.zip',
+        "weed": 'weights/weed.zip'
+    }
+    for name, path in models.items():
+        try:
+            model = YOLO(path)
+            print(f"Success: {name.capitalize()} model loaded from {path}")
+        except Exception as e:
+            print(f"Error loading {name} model: {e}")
+            return
 
     print("2. Testing NDVI Logic...")
     # Create fake 4-channel image (B, G, R, NIR)

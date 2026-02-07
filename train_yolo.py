@@ -7,7 +7,7 @@ from ultralytics import YOLO
 # https://www.kaggle.com/datasets/emmarex/plantdisease/data
 # https://www.kaggle.com/datasets/vencerlanz09/agricultural-pests-image-dataset
 
-def train(epochs=100, batch=16, model_size='x', device='0'):
+def train(epochs=100, batch=16, model_size='x', device='0'): 
     # Load a model
     # yolov8n-cls.pt (nano), yolov8s-cls.pt (small), yolov8m-cls.pt (medium), yolov8l-cls.pt (large), yolov8x-cls.pt (extra large)
     model_name = f'yolov8{model_size}-cls.pt'
